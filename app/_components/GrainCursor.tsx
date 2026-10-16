@@ -7,40 +7,36 @@ import * as THREE from "three";
 import { cursorFragment, cursorVertex } from "./scene/shaders";
 
 // Live cursor state, written by DOM listeners and read every frame.
-const cursor = { vx: 0, vy: 0, hover: 0, down: 0 };
+const cursor = { vx: 0, vy: 0, hover: 0, lastMove: 0 };
 
-const SIZE = 180; // canvas size in CSS pixels
+const SIZE = 360; // canvas size in CSS pixels
+const RADIUS = 56; // radius of the grain disc in px
+const SPACING = 3.2; // distance between dots in px, smaller means denser
 
 function GrainDisc() {
   const material = useRef<THREE.ShaderMaterial>(null);
   const { gl } = useThree();
 
+  // An even grid of dots clipped to a circle, so the texture is uniform.
   const geometry = useMemo(() => {
-    const spacing = 3.8;
-    const radius = 20;
     const pts: number[] = [];
-    const seeds: number[] = [];
-    for (let x = -radius; x <= radius; x += spacing) {
-      for (let y = -radius; y <= radius; y += spacing) {
-        if (Math.hypot(x, y) > radius) continue;
-        pts.push(x, y, 0);
-        const h = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-        seeds.push(h - Math.floor(h));
+    for (let x = -RADIUS; x <= RADIUS; x += SPACING) {
+      for (let y = -RADIUS; y <= RADIUS; y += SPACING) {
+        if (Math.hypot(x, y) <= RADIUS) pts.push(x, y, 0);
       }
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    g.setAttribute("aSeed", new THREE.Float32BufferAttribute(seeds, 1));
     return g;
   }, []);
 
   const uniforms = useMemo(
     () => ({
-      uTime: { value: 0 },
       uVel: { value: new THREE.Vector2() },
       uHover: { value: 0 },
-      uDown: { value: 0 },
-      uSize: { value: 3.4 },
+      uVisible: { value: 0 },
+      uSize: { value: 1.6 },
+      uRadius: { value: RADIUS },
       uPixelRatio: { value: Math.min(gl.getPixelRatio(), 2) },
     }),
     [gl]
@@ -49,14 +45,20 @@ function GrainDisc() {
   useFrame((_, delta) => {
     const u = material.current?.uniforms;
     if (!u) return;
-    u.uTime.value += delta;
-    // Ease uniforms toward the live cursor state for a soft, trailing feel.
-    u.uVel.value.x += (cursor.vx - u.uVel.value.x) * 0.15;
-    u.uVel.value.y += (cursor.vy - u.uVel.value.y) * 0.15;
-    u.uHover.value += (cursor.hover - u.uHover.value) * 0.12;
-    u.uDown.value += (cursor.down - u.uDown.value) * 0.25;
-    cursor.vx *= 0.88;
-    cursor.vy *= 0.88;
+    // Frame-rate independent easing.
+    const ease = (rate: number) => 1 - Math.exp(-rate * delta);
+
+    // Treat the mouse as stopped once no movement has arrived for a moment.
+    const moving = performance.now() - cursor.lastMove < 70;
+    const vx = moving ? cursor.vx : 0;
+    const vy = moving ? cursor.vy : 0;
+    u.uVel.value.x += (vx - u.uVel.value.x) * ease(12);
+    u.uVel.value.y += (vy - u.uVel.value.y) * ease(12);
+    u.uHover.value += (cursor.hover - u.uHover.value) * ease(8);
+
+    // Visible only while the mouse moves; fades out quickly once it stops.
+    const target = moving ? 1 : 0;
+    u.uVisible.value += (target - u.uVisible.value) * ease(target > u.uVisible.value ? 18 : 6);
   });
 
   return (
@@ -80,24 +82,23 @@ export default function GrainCursor() {
     const el = wrap.current;
     if (!el) return;
 
-    const html = document.documentElement;
-    html.classList.add("has-grain-cursor");
-
-    const xTo = gsap.quickTo(el, "x", { duration: 0.35, ease: "power3.out" });
-    const yTo = gsap.quickTo(el, "y", { duration: 0.35, ease: "power3.out" });
+    const xTo = gsap.quickTo(el, "x", { duration: 0.12, ease: "power3.out" });
+    const yTo = gsap.quickTo(el, "y", { duration: 0.12, ease: "power3.out" });
     let lastX = -1;
     let lastY = -1;
 
     const move = (e: PointerEvent) => {
+      if (e.pointerType !== "mouse") return;
       if (lastX < 0) {
-        gsap.set(el, { x: e.clientX - SIZE / 2, y: e.clientY - SIZE / 2, opacity: 1 });
+        gsap.set(el, { x: e.clientX - SIZE / 2, y: e.clientY - SIZE / 2 });
       } else {
         // Screen y points down, the shader's y points up.
-        cursor.vx = gsap.utils.clamp(-40, 40, e.clientX - lastX);
-        cursor.vy = gsap.utils.clamp(-40, 40, -(e.clientY - lastY));
+        cursor.vx = gsap.utils.clamp(-60, 60, e.clientX - lastX);
+        cursor.vy = gsap.utils.clamp(-60, 60, -(e.clientY - lastY));
       }
       lastX = e.clientX;
       lastY = e.clientY;
+      cursor.lastMove = performance.now();
       xTo(e.clientX - SIZE / 2);
       yTo(e.clientY - SIZE / 2);
     };
@@ -105,26 +106,12 @@ export default function GrainCursor() {
       const t = e.target as Element | null;
       cursor.hover = t?.closest("a, button") ? 1 : 0;
     };
-    const down = () => (cursor.down = 1);
-    const up = () => (cursor.down = 0);
-    const leave = () => gsap.to(el, { opacity: 0, duration: 0.2 });
-    const enter = () => gsap.to(el, { opacity: 1, duration: 0.2 });
 
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerover", over);
-    window.addEventListener("pointerdown", down);
-    window.addEventListener("pointerup", up);
-    document.addEventListener("pointerleave", leave);
-    document.addEventListener("pointerenter", enter);
-
     return () => {
-      html.classList.remove("has-grain-cursor");
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerover", over);
-      window.removeEventListener("pointerdown", down);
-      window.removeEventListener("pointerup", up);
-      document.removeEventListener("pointerleave", leave);
-      document.removeEventListener("pointerenter", enter);
     };
   }, []);
 
@@ -132,7 +119,7 @@ export default function GrainCursor() {
     <div
       ref={wrap}
       aria-hidden="true"
-      className="pointer-events-none fixed left-0 top-0 z-[100] opacity-0 mix-blend-difference"
+      className="pointer-events-none fixed left-0 top-0 z-[100] mix-blend-difference"
       style={{ width: SIZE, height: SIZE }}
     >
       <Canvas
