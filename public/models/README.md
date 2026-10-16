@@ -1,8 +1,7 @@
 # 3D models
 
-Drop .glb or .gltf files here, then set their paths in `app/content.ts`:
+Drop .glb or .gltf files here, then set their paths in `app/content.ts`.
+Each project in `work` has a `model` field for its planet, e.g. `model: "/models/agm.glb"`.
 
-- Each project in `work` has a `model` field: its planet in the hero galaxy.
-- `models.contact` is the object beside the contact section.
-
-Until a slot has a model, a GLSL shader version renders in its place.
+Until a slot has a model, a GLSL shader planet renders in its place. The planet keeps
+its orbit, spin, hover and click behaviour either way.

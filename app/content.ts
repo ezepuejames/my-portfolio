@@ -20,15 +20,9 @@ export const profile = {
   availability: "Available for remote roles, full overlap with UK and EU hours",
 };
 
-/**
- * 3D model slot for the contact section.
- * Each project's planet has its own slot on its entry in `work` below (`model`).
- * Drop a .glb/.gltf file into /public/models and put its path in the slot,
- * e.g. "/models/agm.glb". While a slot is null, a GLSL planet renders instead.
- */
-export const models: { contact: string | null } = {
-  contact: null, // MODEL SLOT: object beside the contact section
-};
+// 3D models: each project in `work` below has a `model` slot for its planet.
+// Drop a .glb/.gltf file into /public/models and put its path in that slot,
+// e.g. model: "/models/agm.glb". While a slot is null, a GLSL planet renders.
 
 export type WorkEntry = {
   title: string;

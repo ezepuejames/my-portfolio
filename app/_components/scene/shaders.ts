@@ -1,31 +1,3 @@
-// Fresnel shell used by the placeholder shown in empty model slots.
-export const placeholderVertex = /* glsl */ `
-  uniform float uTime;
-  varying vec3 vNormal;
-  varying vec3 vView;
-
-  void main() {
-    vec3 p = position + normal * sin(position.y * 3.0 + uTime) * 0.04;
-    vec4 world = modelMatrix * vec4(p, 1.0);
-    vNormal = normalize(normalMatrix * normal);
-    vView = normalize(cameraPosition - world.xyz);
-    gl_Position = projectionMatrix * viewMatrix * world;
-  }
-`;
-
-export const placeholderFragment = /* glsl */ `
-  uniform vec3 uInk;
-  uniform vec3 uSignal;
-  varying vec3 vNormal;
-  varying vec3 vView;
-
-  void main() {
-    float fresnel = pow(1.0 - max(dot(vNormal, vView), 0.0), 2.2);
-    vec3 color = mix(uInk, uSignal, fresnel);
-    gl_FragColor = vec4(color, 0.08 + fresnel * 0.8);
-  }
-`;
-
 // Grain cursor: a stippled disc of dots that sits on the gravity lens.
 // Dots drift slightly in place, lag behind the direction of travel and
 // spread out over links and buttons.

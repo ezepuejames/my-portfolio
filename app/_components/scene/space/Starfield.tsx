@@ -4,7 +4,7 @@ import { useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { starfieldFragment, starfieldVertex } from "./spaceShaders";
-import { sceneState } from "../store";
+import { galaxy } from "./galaxyState";
 
 export default function Starfield({ count = 2600 }: { count?: number }) {
   const material = useRef<THREE.ShaderMaterial>(null);
@@ -50,7 +50,7 @@ export default function Starfield({ count = 2600 }: { count?: number }) {
   useFrame((_, delta) => {
     if (!material.current || !points.current) return;
     material.current.uniforms.uTime.value += delta;
-    material.current.uniforms.uOpacity.value = sceneState.intro;
+    material.current.uniforms.uOpacity.value = galaxy.intro;
     points.current.rotation.y += delta * 0.004;
   });
 

@@ -77,6 +77,7 @@ export const starFragment = /* glsl */ `
   uniform float uTime;
   uniform vec3 uHot;
   uniform vec3 uCool;
+  uniform float uFade;
   varying vec3 vPos;
   varying vec3 vNormal;
   varying vec3 vView;
@@ -87,7 +88,7 @@ export const starFragment = /* glsl */ `
     float rim = pow(1.0 - max(dot(vNormal, vView), 0.0), 1.6);
     vec3 color = mix(uCool, uHot, n * 1.3);
     color += rim * uHot * 0.6;
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color, uFade);
   }
 `;
 
@@ -103,12 +104,13 @@ export const glowVertex = /* glsl */ `
 export const glowFragment = /* glsl */ `
   uniform vec3 uColor;
   uniform float uTime;
+  uniform float uFade;
   varying vec2 vUv;
 
   void main() {
     float d = length(vUv - 0.5) * 2.0;
     float pulse = 1.0 + 0.05 * sin(uTime * 1.3);
-    float a = pow(max(1.0 - d, 0.0), 2.4) * 0.8 * pulse;
+    float a = pow(max(1.0 - d, 0.0), 2.4) * 0.8 * pulse * uFade;
     gl_FragColor = vec4(uColor, a);
   }
 `;
@@ -134,6 +136,7 @@ export const planetFragment = /* glsl */ `
   uniform vec3 uStarPos;
   uniform float uSeed;
   uniform float uBands;
+  uniform float uFade;
   varying vec3 vObj;
   varying vec3 vWorld;
   varying vec3 vNormal;
@@ -153,25 +156,43 @@ export const planetFragment = /* glsl */ `
     float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
 
     vec3 color = surface * (0.06 + diffuse * 1.1) + rim * uColorB * 0.35 * (0.3 + diffuse);
-    gl_FragColor = vec4(color, 1.0);
+    gl_FragColor = vec4(color, uFade);
   }
 `;
 
-// Orbit trails: alpha fades from the planet back along its recent path.
-export const trailVertex = /* glsl */ `
-  attribute float aT;
-  varying float vT;
+// Space dust: a volume of motes that wraps around the camera in all three
+// axes, so flying forward or sideways never runs out. Motes grow and
+// brighten as they get close, which sells the sense of moving through depth.
+export const dustVertex = /* glsl */ `
+  uniform vec3 uOffset;   // travel and pan, in world units
+  uniform vec3 uTile;     // size of the repeating volume
+  uniform float uNear;    // how far behind the camera motes go before wrapping
+  uniform float uPixelRatio;
+  attribute float aSeed;
+  varying float vAlpha;
+
+  vec3 wrapVolume(vec3 p) {
+    vec3 shifted = p + uOffset;
+    vec3 lo = vec3(-uTile.x * 0.5, -uTile.y * 0.5, uNear - uTile.z);
+    return lo + mod(shifted - lo, uTile);
+  }
+
   void main() {
-    vT = aT;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    vec3 p = wrapVolume(position);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    float depth = -mv.z;
+    float far = uTile.z - uNear;
+    vAlpha = smoothstep(far, far * 0.55, depth) * smoothstep(0.2, 3.0, depth) * (0.35 + aSeed * 0.65);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = (1.0 + aSeed * 1.6) * uPixelRatio * clamp(18.0 / depth, 0.6, 5.0);
   }
 `;
 
-export const trailFragment = /* glsl */ `
-  uniform vec3 uColor;
-  uniform float uOpacity;
-  varying float vT;
+export const dustFragment = /* glsl */ `
+  varying float vAlpha;
   void main() {
-    gl_FragColor = vec4(uColor, pow(1.0 - vT, 1.6) * uOpacity);
+    float d = length(gl_PointCoord - 0.5);
+    if (d > 0.5) discard;
+    gl_FragColor = vec4(vec3(0.82, 0.88, 1.0), smoothstep(0.5, 0.0, d) * vAlpha);
   }
 `;
