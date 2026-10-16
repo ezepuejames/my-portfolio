@@ -196,3 +196,49 @@ export const dustFragment = /* glsl */ `
     gl_FragColor = vec4(vec3(0.82, 0.88, 1.0), smoothstep(0.5, 0.0, d) * vAlpha);
   }
 `;
+
+// Warp streaks: each mote is a line from its position back along the direction
+// of travel. Length and brightness follow speed, so at rest they vanish and
+// a fast scroll or drag turns the dust into hyperspace lines.
+export const streakVertex = /* glsl */ `
+  uniform vec3 uOffset;
+  uniform vec3 uTile;
+  uniform float uNear;
+  uniform vec3 uVel;      // view velocity, units per second
+  uniform float uStretch; // seconds of motion each streak shows
+  attribute float aSeed;
+  attribute float aTail;  // 0 at the head of the streak, 1 at the tail
+  varying float vAlpha;
+
+  vec3 wrapVolume(vec3 p) {
+    vec3 shifted = p + uOffset;
+    vec3 lo = vec3(-uTile.x * 0.5, -uTile.y * 0.5, uNear - uTile.z);
+    return lo + mod(shifted - lo, uTile);
+  }
+
+  void main() {
+    // Wrap the head only, then hang the tail off it, so a streak never
+    // stretches across the whole volume when it wraps.
+    vec3 head = wrapVolume(position);
+    vec3 p = head - uVel * uStretch * (0.6 + aSeed * 0.8) * aTail;
+
+    vec4 mvHead = modelViewMatrix * vec4(head, 1.0);
+    float depth = -mvHead.z;
+    float far = uTile.z - uNear;
+    float speed = length(uVel);
+    vAlpha = smoothstep(2.0, 10.0, speed)
+           * smoothstep(far, far * 0.45, depth)
+           * smoothstep(0.3, 2.0, depth)
+           * mix(1.0, 0.0, aTail)
+           * (0.55 + aSeed * 0.45);
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }
+`;
+
+export const streakFragment = /* glsl */ `
+  varying float vAlpha;
+  void main() {
+    gl_FragColor = vec4(vec3(0.78, 0.86, 1.0), vAlpha);
+  }
+`;

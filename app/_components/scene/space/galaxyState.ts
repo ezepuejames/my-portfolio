@@ -13,6 +13,10 @@ export const galaxy = {
   travelVel: 0,
   panVX: 0,
   panVY: 0,
+  // How fast the view is moving right now, in units per second (drives the warp streaks).
+  velX: 0,
+  velY: 0,
+  velZ: 0,
   dragging: false,
   pointerActive: false,
   hovered: -1, // project index under the cursor

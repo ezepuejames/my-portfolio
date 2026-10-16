@@ -14,6 +14,8 @@ import {
   planetVertex,
   starFragment,
   starVertex,
+  streakFragment,
+  streakVertex,
 } from "./spaceShaders";
 import { galaxy } from "./galaxyState";
 import { NEAR, STAR_GM, SYSTEMS, SystemLook, VOLUME } from "./systems";
@@ -74,11 +76,13 @@ function ProjectSystem({
   look,
   base,
   planetWorld,
+  starWorld,
 }: {
   index: number;
   look: SystemLook;
   base: THREE.Vector3;
   planetWorld: THREE.Vector3[];
+  starWorld: THREE.Vector3[];
 }) {
   const anchor = useRef<THREE.Group>(null);
   const pivot = useRef<THREE.Group>(null);
@@ -152,15 +156,15 @@ function ProjectSystem({
 
     // Fade in from the far end of the volume and out as it passes the camera.
     state.camera.getWorldPosition(camPos);
-    const starWorld = anchor.current.getWorldPosition(scratch);
-    const dist = starWorld.distanceTo(camPos);
+    const starPos = anchor.current.getWorldPosition(scratch);
+    const dist = starPos.distanceTo(camPos);
     let fade = (1 - THREE.MathUtils.smoothstep(dist, FAR * 0.68, FAR)) * THREE.MathUtils.smoothstep(dist, 1.5, 6);
     if (galaxy.focused === index) fade = 1;
     fade *= galaxy.intro;
     anchor.current.visible = fade > 0.01;
 
-    planetU.uStarPos.value.copy(starWorld);
-    moonU.uStarPos.value.copy(starWorld);
+    planetU.uStarPos.value.copy(starPos);
+    moonU.uStarPos.value.copy(starPos);
     for (const u of [planetU, moonU, starU, glowU]) setValue(u.uFade, fade);
     setValue(starU.uTime, starU.uTime.value + delta);
     setValue(glowU.uTime, glowU.uTime.value + delta);
@@ -168,6 +172,7 @@ function ProjectSystem({
     if (orbitMat.current) orbitMat.current.opacity = 0.16 * fade;
 
     pivot.current.getWorldPosition(planetWorld[index]);
+    starWorld[index].copy(scratch);
   });
 
   const onOver = (e: ThreeEvent<PointerEvent>) => {
@@ -311,11 +316,81 @@ function Dust({ count }: { count: number }) {
   );
 }
 
-function Navigator({ planetWorld, narrow }: { planetWorld: THREE.Vector3[]; narrow: boolean }) {
+function Streaks({ count }: { count: number }) {
+  const geometry = useMemo(() => {
+    // Two vertices per streak (head and tail) sharing the same stored position.
+    const pos = new Float32Array(count * 6);
+    const seed = new Float32Array(count * 2);
+    const tail = new Float32Array(count * 2);
+    for (let i = 0; i < count; i++) {
+      const h = (n: number) => {
+        const v = Math.sin(i * 45.164 + n * 94.673) * 43758.5453;
+        return v - Math.floor(v);
+      };
+      const x = (h(1) - 0.5) * VOLUME.x;
+      const y = (h(2) - 0.5) * VOLUME.y;
+      const z = LO_Z + h(3) * VOLUME.z;
+      for (let k = 0; k < 2; k++) {
+        pos.set([x, y, z], (i * 2 + k) * 3);
+        seed[i * 2 + k] = h(4);
+        tail[i * 2 + k] = k;
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
+    g.setAttribute("aTail", new THREE.BufferAttribute(tail, 1));
+    return g;
+  }, [count]);
+
+  const uniforms = useMemo(
+    () => ({
+      uOffset: { value: new THREE.Vector3() },
+      uTile: { value: new THREE.Vector3(VOLUME.x, VOLUME.y, VOLUME.z) },
+      uNear: { value: NEAR },
+      uVel: { value: new THREE.Vector3() },
+      uStretch: { value: 0.24 },
+    }),
+    []
+  );
+
+  useFrame(() => {
+    uniforms.uOffset.value.set(galaxy.panX, galaxy.panY, galaxy.travel);
+    uniforms.uVel.value.set(galaxy.velX, galaxy.velY, galaxy.velZ);
+  });
+
+  return (
+    <lineSegments geometry={geometry} frustumCulled={false}>
+      <shaderMaterial
+        vertexShader={streakVertex}
+        fragmentShader={streakFragment}
+        uniforms={uniforms}
+        transparent
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+      />
+    </lineSegments>
+  );
+}
+
+function Navigator({
+  planetWorld,
+  starWorld,
+  narrow,
+}: {
+  planetWorld: THREE.Vector3[];
+  starWorld: THREE.Vector3[];
+  narrow: boolean;
+}) {
   const camTarget = useMemo(() => new THREE.Vector3(), []);
+  const toStar = useMemo(() => new THREE.Vector3(), []);
+  const viewDir = useMemo(() => new THREE.Vector3(), []);
+  const right = useMemo(() => new THREE.Vector3(), []);
+  const up = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const lookTarget = useMemo(() => new THREE.Vector3(), []);
   const lookNow = useRef(new THREE.Vector3(0, 0, -20));
   const sky = useRef<THREE.Group>(null);
+  const prev = useRef({ travel: 0, panX: 0, panY: 0 });
 
   useFrame((state, delta) => {
     const ease = (rate: number) => 1 - Math.exp(-rate * delta);
@@ -337,15 +412,35 @@ function Navigator({ planetWorld, narrow }: { planetWorld: THREE.Vector3[]; narr
       galaxy.panY += (galaxy.targetPanY - galaxy.panY) * ease(5);
     }
 
+    // Measure how fast the view is moving, smoothed so streaks grow and fade softly.
+    const dt = Math.max(delta, 1 / 240);
+    const k = ease(10);
+    galaxy.velX += ((galaxy.panX - prev.current.panX) / dt - galaxy.velX) * k;
+    galaxy.velY += ((galaxy.panY - prev.current.panY) / dt - galaxy.velY) * k;
+    galaxy.velZ += ((galaxy.travel - prev.current.travel) / dt - galaxy.velZ) * k;
+    prev.current = { travel: galaxy.travel, panX: galaxy.panX, panY: galaxy.panY };
+
     const cam = state.camera;
     if (galaxy.focused >= 0) {
       const p = planetWorld[galaxy.focused];
       const size = SYSTEMS[galaxy.focused % SYSTEMS.length].size;
-      // Sit beside the planet, leaving room for the details panel.
-      const side = narrow ? 0 : size * 2.6;
-      const lift = narrow ? -size * 2.2 : 0;
-      camTarget.set(p.x + side, p.y + lift + size * 0.6, p.z + size * 7.5);
-      lookTarget.set(p.x + side, p.y + lift, p.z);
+      // Come in close: the planet fills a large part of the screen.
+      const dist = size * (narrow ? 5.6 : 4.4);
+      const halfH = Math.tan((((cam as THREE.PerspectiveCamera).fov * Math.PI) / 180) / 2) * dist;
+      const halfW = (halfH * state.size.width) / state.size.height;
+
+      // View it from the star's side so we see its lit face, not its night side.
+      toStar.subVectors(starWorld[galaxy.focused], p).normalize();
+      viewDir.set(0, 0.15, 1).normalize().lerp(toStar, 0.55).normalize();
+      right.crossVectors(up, viewDir).normalize();
+
+      // Shift the frame so the planet sits left of the details panel on desktop,
+      // and in the upper part of the screen above the panel on phones.
+      const side = narrow ? 0 : halfW * 0.45;
+      const drop = narrow ? halfH * 0.42 : 0;
+      lookTarget.copy(p).addScaledVector(right, side);
+      lookTarget.setY(lookTarget.y - drop);
+      camTarget.copy(lookTarget).addScaledVector(viewDir, dist);
     } else {
       // Look around a little with the mouse.
       camTarget.set(state.pointer.x * 0.6, state.pointer.y * 0.4, 0);
@@ -403,6 +498,7 @@ export default function GalaxyScene({
   }, [reducedMotion]);
   const bases = useMemo(() => basePositions(work.length), []);
   const planetWorld = useMemo(() => bases.map(() => new THREE.Vector3(0, 0, -999)), [bases]);
+  const starWorld = useMemo(() => bases.map(() => new THREE.Vector3(0, 0, -999)), [bases]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -424,10 +520,11 @@ export default function GalaxyScene({
       <color attach="background" args={["#05080f"]} />
       <ambientLight intensity={0.4} />
       <directionalLight position={[-20, 12, 10]} intensity={1.8} />
-      <Navigator planetWorld={planetWorld} narrow={narrow} />
+      <Navigator planetWorld={planetWorld} starWorld={starWorld} narrow={narrow} />
       <Dust count={narrow ? 1800 : 3500} />
+      <Streaks count={narrow ? 1400 : 2800} />
       {bases.map((b, i) => (
-        <ProjectSystem key={i} index={i} look={SYSTEMS[i % SYSTEMS.length]} base={b} planetWorld={planetWorld} />
+        <ProjectSystem key={i} index={i} look={SYSTEMS[i % SYSTEMS.length]} base={b} planetWorld={planetWorld} starWorld={starWorld} />
       ))}
     </Canvas>
   );
