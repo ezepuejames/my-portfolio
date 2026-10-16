@@ -16,7 +16,7 @@ import {
   starVertex,
   gridFragment,
   gridVertex,
-  STAR_SLOTS,
+  MASS_SLOTS,
 } from "./spaceShaders";
 import { galaxy } from "./galaxyState";
 import { NEAR, STAR_GM, SYSTEMS, SystemLook, VOLUME } from "./systems";
@@ -317,51 +317,71 @@ function Dust({ count }: { count: number }) {
   );
 }
 
-function SpacetimeGrid({ starWorld }: { starWorld: THREE.Vector3[] }) {
+function SpacetimeGrid({
+  starWorld,
+  planetWorld,
+  narrow,
+}: {
+  starWorld: THREE.Vector3[];
+  planetWorld: THREE.Vector3[];
+  narrow: boolean;
+}) {
   const geometry = useMemo(() => {
-    // Lines run along x and along z; each is split into short segments so it can curve.
-    const step = 1.6; // distance between grid lines
-    const seg = 0.8; // segment length along a line
+    // A 3D lattice: lines along x, y and z, split into short segments so they can curve.
+    const step = narrow ? 5 : 4; // distance between lattice lines
+    const seg = 0.7; // segment length along a line
     const pos: number[] = [];
     const mid: number[] = [];
-    const add = (x1: number, z1: number, x2: number, z2: number) => {
-      pos.push(x1, 0, z1, x2, 0, z2);
-      const mx = (x1 + x2) / 2;
-      const mz = (z1 + z2) / 2;
-      mid.push(mx, 0, mz, mx, 0, mz);
+    const add = (a: number[], b: number[]) => {
+      pos.push(...a, ...b);
+      const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+      mid.push(...m, ...m);
     };
-    for (let x = -VOLUME.x / 2; x < VOLUME.x / 2; x += step) {
-      for (let z = LO_Z; z < LO_Z + VOLUME.z; z += seg) add(x, z, x, z + seg);
-    }
-    for (let z = LO_Z; z < LO_Z + VOLUME.z; z += step) {
-      for (let x = -VOLUME.x / 2; x < VOLUME.x / 2; x += seg) add(x, z, x + seg, z);
-    }
+    const x0 = -VOLUME.x / 2;
+    const y0 = -VOLUME.y / 2;
+    for (let x = x0; x < x0 + VOLUME.x; x += step)
+      for (let y = y0; y < y0 + VOLUME.y; y += step)
+        for (let z = LO_Z; z < LO_Z + VOLUME.z; z += seg) add([x, y, z], [x, y, z + seg]);
+    for (let y = y0; y < y0 + VOLUME.y; y += step)
+      for (let z = LO_Z; z < LO_Z + VOLUME.z; z += step)
+        for (let x = x0; x < x0 + VOLUME.x; x += seg) add([x, y, z], [x + seg, y, z]);
+    for (let x = x0; x < x0 + VOLUME.x; x += step)
+      for (let z = LO_Z; z < LO_Z + VOLUME.z; z += step)
+        for (let y = y0; y < y0 + VOLUME.y; y += seg) add([x, y, z], [x, y + seg, z]);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute("aMid", new THREE.Float32BufferAttribute(mid, 3));
     return g;
-  }, []);
+  }, [narrow]);
 
   const uniforms = useMemo(
     () => ({
       uOffset: { value: new THREE.Vector3() },
       uTile: { value: new THREE.Vector3(VOLUME.x, VOLUME.y, VOLUME.z) },
       uNear: { value: NEAR },
-      uY: { value: -5 },
-      uStars: { value: Array.from({ length: STAR_SLOTS }, () => new THREE.Vector3(0, 999, 0)) },
-      // Heavier stars make deeper wells.
-      uMass: { value: Array.from({ length: STAR_SLOTS }, (_, i) => (SYSTEMS[i] ? 1.6 + SYSTEMS[i].star.size * 6 : 0)) },
+      uMassPos: { value: Array.from({ length: MASS_SLOTS }, () => new THREE.Vector3(0, 0, 9999)) },
+      // First half of the slots are stars, second half their planets. Bigger bodies bend more.
+      uMass: {
+        value: Array.from({ length: MASS_SLOTS }, (_, i) => {
+          const half = MASS_SLOTS / 2;
+          const sys = SYSTEMS[i % half];
+          if (!sys || (i >= half && i - half >= SYSTEMS.length)) return 0;
+          return i < half ? 1.1 + sys.star.size * 3 : 0.35 + sys.size * 1.1;
+        }),
+      },
       uTime: { value: 0 },
       uSpeed: { value: 0 },
-      uColor: { value: new THREE.Color("#5b78c9") },
-      uWellColor: { value: new THREE.Color("#c9d8ff") },
+      uColor: { value: new THREE.Color("#4d66b3") },
+      uBendColor: { value: new THREE.Color("#c9d8ff") },
     }),
     []
   );
 
   useFrame((_, delta) => {
+    const half = MASS_SLOTS / 2;
     uniforms.uOffset.value.set(galaxy.panX, galaxy.panY, galaxy.travel);
-    starWorld.forEach((p, i) => i < STAR_SLOTS && uniforms.uStars.value[i].copy(p));
+    starWorld.forEach((p, i) => i < half && uniforms.uMassPos.value[i].copy(p));
+    planetWorld.forEach((p, i) => i < half && uniforms.uMassPos.value[half + i].copy(p));
     const speed = Math.hypot(galaxy.velX, galaxy.velY, galaxy.velZ);
     const target = THREE.MathUtils.smoothstep(speed, 2, 24) * galaxy.intro;
     setValue(uniforms.uSpeed, uniforms.uSpeed.value + (target - uniforms.uSpeed.value) * (1 - Math.exp(-5 * delta)));
@@ -532,7 +552,7 @@ export default function GalaxyScene({
       <directionalLight position={[-20, 12, 10]} intensity={1.8} />
       <Navigator planetWorld={planetWorld} starWorld={starWorld} narrow={narrow} />
       <Dust count={narrow ? 1800 : 3500} />
-      <SpacetimeGrid starWorld={starWorld} />
+      <SpacetimeGrid starWorld={starWorld} planetWorld={planetWorld} narrow={narrow} />
       {bases.map((b, i) => (
         <ProjectSystem key={i} index={i} look={SYSTEMS[i % SYSTEMS.length]} base={b} planetWorld={planetWorld} starWorld={starWorld} />
       ))}

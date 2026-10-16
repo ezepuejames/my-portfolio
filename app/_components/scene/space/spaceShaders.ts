@@ -197,70 +197,63 @@ export const dustFragment = /* glsl */ `
   }
 `;
 
-// Spacetime grid: a sheet of lines below the galaxy that wraps forever and
-// is pulled down into a gravity well under every star, like the classic
-// rubber-sheet picture of curved spacetime. Moving fast sends ripples
-// along it and makes it glow brighter.
-export const STAR_SLOTS = 16;
+// Spacetime lattice: lines running along x, y and z through the whole volume,
+// wrapping forever with it. Every star and planet bends nearby lines toward
+// itself, so the grid visibly curves around each body; heavier bodies bend it
+// more. Moving fast sends a ripple through it and makes it glow brighter.
+export const MASS_SLOTS = 32;
 
 export const gridVertex = /* glsl */ `
-  #define STARS ${STAR_SLOTS}
+  #define MASSES ${MASS_SLOTS}
   uniform vec3 uOffset;   // travel and pan
   uniform vec3 uTile;
   uniform float uNear;
-  uniform float uY;       // height of the sheet
-  uniform vec3 uStars[STARS];
-  uniform float uMass[STARS];
+  uniform vec3 uMassPos[MASSES];
+  uniform float uMass[MASSES];
   uniform float uTime;
   uniform float uSpeed;   // 0 at rest, 1 when moving fast
   attribute vec3 aMid;    // midpoint of this line segment
   varying float vAlpha;
-  varying float vWell;
+  varying float vBend;
 
   void main() {
     // Wrap the whole segment by its midpoint so lines never stretch across the volume.
-    vec2 lo = vec2(-uTile.x * 0.5, uNear - uTile.z);
-    vec2 m = aMid.xz + uOffset.xz;
-    vec2 wrapped = lo + mod(m - lo, uTile.xz);
-    vec3 p = position;
-    p.xz += wrapped - aMid.xz;
-    p.y = uY;
+    vec3 lo = vec3(-uTile.x * 0.5, -uTile.y * 0.5, uNear - uTile.z);
+    vec3 m = aMid + uOffset;
+    vec3 wrapped = lo + mod(m - lo, uTile);
+    vec3 p = position + (wrapped - aMid);
 
-    // Each star sinks the sheet into a well directly beneath it, deeper for
-    // heavier stars, and draws the grid lines in toward its centre.
-    float sink = 0.0;
-    vec2 draw = vec2(0.0);
-    for (int i = 0; i < STARS; i++) {
-      vec2 d = uStars[i].xz - p.xz;
-      float r2 = dot(d, d);
-      float well = uMass[i] / (1.0 + r2 * 0.22);
-      sink += well;
-      draw += d * well * 0.06;
+    // Curve the lattice toward each mass. The pull is capped so lines bend
+    // around a body instead of collapsing into it.
+    vec3 bend = vec3(0.0);
+    for (int i = 0; i < MASSES; i++) {
+      vec3 d = uMassPos[i] - p;
+      float r = length(d) + 1e-4;
+      float pull = uMass[i] / (1.0 + r * r * 0.35);
+      bend += (d / r) * min(pull, r * 0.6);
     }
-    sink = min(sink, 5.5);
-    p.y -= sink;
-    p.xz += draw;
-    vec3 pull = vec3(draw.x, -sink, draw.y);
+    p += bend;
 
-    // Ripples travel through the sheet while you move.
-    p.y += sin(p.z * 0.55 + uTime * 5.0) * 0.22 * uSpeed;
-    p.y += sin(p.x * 0.4 - uTime * 3.0) * 0.08 * uSpeed;
+    // A ripple runs along the direction of travel while moving.
+    p += vec3(0.0, sin(p.z * 0.5 + uTime * 6.0), 0.0) * 0.18 * uSpeed;
 
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
     float depth = -mv.z;
     float far = uTile.z - uNear;
-    vWell = clamp(sink * 0.3, 0.0, 1.0);
-    vAlpha = smoothstep(far, far * 0.35, depth) * smoothstep(0.5, 4.0, depth) * (0.24 + 0.36 * uSpeed + vWell * 0.35);
+    vBend = clamp(length(bend) * 0.9, 0.0, 1.0);
+    vAlpha = smoothstep(far, far * 0.4, depth)
+           * smoothstep(1.0, 6.0, depth)
+           * (0.05 + 0.12 * uSpeed + vBend * 0.45);
     gl_Position = projectionMatrix * mv;
   }
 `;
 
 export const gridFragment = /* glsl */ `
   uniform vec3 uColor;
-  uniform vec3 uWellColor;
+  uniform vec3 uBendColor;
   varying float vAlpha;
-  varying float vWell;
+  varying float vBend;
   void main() {
-    gl_FragColor = vec4(mix(uColor, uWellColor, vWell), vAlpha);
+    gl_FragColor = vec4(mix(uColor, uBendColor, vBend), vAlpha);
   }
 `;
