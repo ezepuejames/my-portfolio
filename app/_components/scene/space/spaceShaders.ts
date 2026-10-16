@@ -1,0 +1,177 @@
+// GLSL for the space hero: starfield, star, planets and orbit trails.
+
+// Shared 3D value noise + fbm, used by the star surface and planet bands.
+const noise = /* glsl */ `
+  float hash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+  }
+  float noise(vec3 x) {
+    vec3 i = floor(x);
+    vec3 f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(hash(i + vec3(0, 0, 0)), hash(i + vec3(1, 0, 0)), f.x),
+          mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
+      mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x),
+          mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y),
+      f.z);
+  }
+  float fbm(vec3 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 5; i++) {
+      v += a * noise(p);
+      p *= 2.02;
+      a *= 0.5;
+    }
+    return v;
+  }
+`;
+
+// Starfield: points scattered on a large sphere that twinkle at their own rate.
+export const starfieldVertex = /* glsl */ `
+  uniform float uTime;
+  uniform float uPixelRatio;
+  attribute float aSeed;
+  attribute float aSize;
+  varying float vTwinkle;
+
+  void main() {
+    vTwinkle = 0.55 + 0.45 * sin(uTime * (0.6 + aSeed * 1.8) + aSeed * 40.0);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mv;
+    gl_PointSize = aSize * uPixelRatio;
+  }
+`;
+
+export const starfieldFragment = /* glsl */ `
+  uniform float uOpacity;
+  varying float vTwinkle;
+
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    if (d > 0.5) discard;
+    float a = smoothstep(0.5, 0.0, d) * vTwinkle * uOpacity;
+    gl_FragColor = vec4(vec3(0.86, 0.9, 1.0), a);
+  }
+`;
+
+// Star surface: churning granulation.
+export const starVertex = /* glsl */ `
+  varying vec3 vPos;
+  varying vec3 vNormal;
+  varying vec3 vView;
+
+  void main() {
+    vPos = position;
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vNormal = normalize(normalMatrix * normal);
+    vView = normalize(cameraPosition - world.xyz);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+export const starFragment = /* glsl */ `
+  uniform float uTime;
+  uniform vec3 uHot;
+  uniform vec3 uCool;
+  varying vec3 vPos;
+  varying vec3 vNormal;
+  varying vec3 vView;
+  ${noise}
+
+  void main() {
+    float n = fbm(vPos * 3.2 + vec3(0.0, uTime * 0.15, uTime * 0.08));
+    float rim = pow(1.0 - max(dot(vNormal, vView), 0.0), 1.6);
+    vec3 color = mix(uCool, uHot, n * 1.3);
+    color += rim * uHot * 0.6;
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
+
+// Star glow: a camera-facing quad with a soft radial falloff, added on top.
+export const glowVertex = /* glsl */ `
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+export const glowFragment = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uTime;
+  varying vec2 vUv;
+
+  void main() {
+    float d = length(vUv - 0.5) * 2.0;
+    float pulse = 1.0 + 0.05 * sin(uTime * 1.3);
+    float a = pow(max(1.0 - d, 0.0), 2.4) * 0.8 * pulse;
+    gl_FragColor = vec4(uColor, a);
+  }
+`;
+
+// Planets: banded procedural surfaces lit by the star at the origin.
+export const planetVertex = /* glsl */ `
+  varying vec3 vObj;
+  varying vec3 vWorld;
+  varying vec3 vNormal;
+
+  void main() {
+    vObj = position;
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorld = world.xyz;
+    vNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+export const planetFragment = /* glsl */ `
+  uniform vec3 uColorA;
+  uniform vec3 uColorB;
+  uniform vec3 uStarPos;
+  uniform float uSeed;
+  uniform float uBands;
+  varying vec3 vObj;
+  varying vec3 vWorld;
+  varying vec3 vNormal;
+  ${noise}
+
+  void main() {
+    vec3 p = normalize(vObj);
+    float warp = fbm(p * 3.0 + uSeed) * 0.8;
+    float bands = sin((p.y + warp * 0.35) * uBands + uSeed * 3.0) * 0.5 + 0.5;
+    float detail = fbm(p * 7.0 + uSeed * 2.0);
+    vec3 surface = mix(uColorA, uColorB, smoothstep(0.2, 0.8, bands * 0.7 + detail * 0.5));
+
+    vec3 L = normalize(uStarPos - vWorld);
+    vec3 V = normalize(cameraPosition - vWorld);
+    vec3 N = normalize(vNormal);
+    float diffuse = max(dot(N, L), 0.0);
+    float rim = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+
+    vec3 color = surface * (0.06 + diffuse * 1.1) + rim * uColorB * 0.35 * (0.3 + diffuse);
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
+
+// Orbit trails: alpha fades from the planet back along its recent path.
+export const trailVertex = /* glsl */ `
+  attribute float aT;
+  varying float vT;
+  void main() {
+    vT = aT;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+export const trailFragment = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+  varying float vT;
+  void main() {
+    gl_FragColor = vec4(uColor, pow(1.0 - vT, 1.6) * uOpacity);
+  }
+`;

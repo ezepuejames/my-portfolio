@@ -220,6 +220,8 @@ export default function GrainCursor() {
           dpr={[1, 2]}
           gl={{ antialias: true, alpha: true }}
           fallback={null}
+          // The canvas must never catch clicks meant for the page underneath.
+          style={{ pointerEvents: "none" }}
         >
           <GrainDisc />
         </Canvas>
