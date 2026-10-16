@@ -20,6 +20,7 @@ import {
 } from "./spaceShaders";
 import { galaxy } from "./galaxyState";
 import BlackHole from "./BlackHole";
+import WormholeCursor from "./WormholeCursor";
 import { AsteroidField, SpaceLabel, TextAsteroids, makeRockGeometry } from "./Asteroids";
 import { BLACK_HOLE, NEAR, STAR_GM, SYSTEMS, SystemLook, VOLUME, WAVES } from "./systems";
 import { work } from "../../../content";
@@ -599,9 +600,18 @@ export default function GalaxyScene({
   eventSource: RefObject<HTMLElement | null>;
 }) {
   const [narrow, setNarrow] = useState(false);
+  const [finePointer, setFinePointer] = useState(false);
   useEffect(() => {
     galaxy.drift = reducedMotion ? 0 : 1;
   }, [reducedMotion]);
+  // The wormhole cursor is for mouse and trackpad users who allow motion.
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: fine)");
+    const update = () => setFinePointer(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   const bases = useMemo(() => basePositions(work.length), []);
   const planetWorld = useMemo(() => bases.map(() => new THREE.Vector3(0, 0, -999)), [bases]);
   const starWorld = useMemo(() => bases.map(() => new THREE.Vector3(0, 0, -999)), [bases]);
@@ -641,6 +651,7 @@ export default function GalaxyScene({
       <TextAsteroids narrow={narrow} />
       {/* Last, so it can render everything else first and bend it. */}
       <BlackHole worldOut={holeWorld} />
+      {finePointer && !reducedMotion && <WormholeCursor />}
     </Canvas>
   );
 }

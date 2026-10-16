@@ -1,4 +1,3 @@
-import CursorMount from "./_components/CursorMount";
 import GalaxyHome from "./_components/GalaxyHome";
 
 // The whole site is the galaxy: projects are planets, and About, Contact
@@ -6,7 +5,6 @@ import GalaxyHome from "./_components/GalaxyHome";
 export default function Home() {
   return (
     <main>
-      <CursorMount />
       <GalaxyHome />
     </main>
   );
