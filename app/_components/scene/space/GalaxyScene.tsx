@@ -14,8 +14,9 @@ import {
   planetVertex,
   starFragment,
   starVertex,
-  streakFragment,
-  streakVertex,
+  gridFragment,
+  gridVertex,
+  STAR_SLOTS,
 } from "./spaceShaders";
 import { galaxy } from "./galaxyState";
 import { NEAR, STAR_GM, SYSTEMS, SystemLook, VOLUME } from "./systems";
@@ -316,54 +317,63 @@ function Dust({ count }: { count: number }) {
   );
 }
 
-function Streaks({ count }: { count: number }) {
+function SpacetimeGrid({ starWorld }: { starWorld: THREE.Vector3[] }) {
   const geometry = useMemo(() => {
-    // Two vertices per streak (head and tail) sharing the same stored position.
-    const pos = new Float32Array(count * 6);
-    const seed = new Float32Array(count * 2);
-    const tail = new Float32Array(count * 2);
-    for (let i = 0; i < count; i++) {
-      const h = (n: number) => {
-        const v = Math.sin(i * 45.164 + n * 94.673) * 43758.5453;
-        return v - Math.floor(v);
-      };
-      const x = (h(1) - 0.5) * VOLUME.x;
-      const y = (h(2) - 0.5) * VOLUME.y;
-      const z = LO_Z + h(3) * VOLUME.z;
-      for (let k = 0; k < 2; k++) {
-        pos.set([x, y, z], (i * 2 + k) * 3);
-        seed[i * 2 + k] = h(4);
-        tail[i * 2 + k] = k;
-      }
+    // Lines run along x and along z; each is split into short segments so it can curve.
+    const step = 1.6; // distance between grid lines
+    const seg = 0.8; // segment length along a line
+    const pos: number[] = [];
+    const mid: number[] = [];
+    const add = (x1: number, z1: number, x2: number, z2: number) => {
+      pos.push(x1, 0, z1, x2, 0, z2);
+      const mx = (x1 + x2) / 2;
+      const mz = (z1 + z2) / 2;
+      mid.push(mx, 0, mz, mx, 0, mz);
+    };
+    for (let x = -VOLUME.x / 2; x < VOLUME.x / 2; x += step) {
+      for (let z = LO_Z; z < LO_Z + VOLUME.z; z += seg) add(x, z, x, z + seg);
+    }
+    for (let z = LO_Z; z < LO_Z + VOLUME.z; z += step) {
+      for (let x = -VOLUME.x / 2; x < VOLUME.x / 2; x += seg) add(x, z, x + seg, z);
     }
     const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    g.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
-    g.setAttribute("aTail", new THREE.BufferAttribute(tail, 1));
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("aMid", new THREE.Float32BufferAttribute(mid, 3));
     return g;
-  }, [count]);
+  }, []);
 
   const uniforms = useMemo(
     () => ({
       uOffset: { value: new THREE.Vector3() },
       uTile: { value: new THREE.Vector3(VOLUME.x, VOLUME.y, VOLUME.z) },
       uNear: { value: NEAR },
-      uVel: { value: new THREE.Vector3() },
-      uStretch: { value: 0.24 },
+      uY: { value: -5 },
+      uStars: { value: Array.from({ length: STAR_SLOTS }, () => new THREE.Vector3(0, 999, 0)) },
+      // Heavier stars make deeper wells.
+      uMass: { value: Array.from({ length: STAR_SLOTS }, (_, i) => (SYSTEMS[i] ? 1.6 + SYSTEMS[i].star.size * 6 : 0)) },
+      uTime: { value: 0 },
+      uSpeed: { value: 0 },
+      uColor: { value: new THREE.Color("#5b78c9") },
+      uWellColor: { value: new THREE.Color("#c9d8ff") },
     }),
     []
   );
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     uniforms.uOffset.value.set(galaxy.panX, galaxy.panY, galaxy.travel);
-    uniforms.uVel.value.set(galaxy.velX, galaxy.velY, galaxy.velZ);
+    starWorld.forEach((p, i) => i < STAR_SLOTS && uniforms.uStars.value[i].copy(p));
+    const speed = Math.hypot(galaxy.velX, galaxy.velY, galaxy.velZ);
+    const target = THREE.MathUtils.smoothstep(speed, 2, 24) * galaxy.intro;
+    setValue(uniforms.uSpeed, uniforms.uSpeed.value + (target - uniforms.uSpeed.value) * (1 - Math.exp(-5 * delta)));
+    setValue(uniforms.uTime, uniforms.uTime.value + delta);
   });
 
+  // The shader moves vertices far from their stored spot, so skip culling.
   return (
     <lineSegments geometry={geometry} frustumCulled={false}>
       <shaderMaterial
-        vertexShader={streakVertex}
-        fragmentShader={streakFragment}
+        vertexShader={gridVertex}
+        fragmentShader={gridFragment}
         uniforms={uniforms}
         transparent
         depthWrite={false}
@@ -405,9 +415,9 @@ function Navigator({
       }
       galaxy.targetTravel += galaxy.travelVel * delta;
       galaxy.travelVel *= Math.exp(-1.6 * delta);
-      if (galaxy.hovered < 0) galaxy.targetTravel += 0.9 * delta * galaxy.intro * galaxy.drift;
+      if (galaxy.hovered < 0) galaxy.targetTravel += 1.8 * delta * galaxy.intro * galaxy.drift;
 
-      galaxy.travel += (galaxy.targetTravel - galaxy.travel) * ease(3.5);
+      galaxy.travel += (galaxy.targetTravel - galaxy.travel) * ease(4.5);
       galaxy.panX += (galaxy.targetPanX - galaxy.panX) * ease(5);
       galaxy.panY += (galaxy.targetPanY - galaxy.panY) * ease(5);
     }
@@ -522,7 +532,7 @@ export default function GalaxyScene({
       <directionalLight position={[-20, 12, 10]} intensity={1.8} />
       <Navigator planetWorld={planetWorld} starWorld={starWorld} narrow={narrow} />
       <Dust count={narrow ? 1800 : 3500} />
-      <Streaks count={narrow ? 1400 : 2800} />
+      <SpacetimeGrid starWorld={starWorld} />
       {bases.map((b, i) => (
         <ProjectSystem key={i} index={i} look={SYSTEMS[i % SYSTEMS.length]} base={b} planetWorld={planetWorld} starWorld={starWorld} />
       ))}

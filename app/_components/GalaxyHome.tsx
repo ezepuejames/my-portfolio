@@ -147,7 +147,7 @@ export default function GalaxyHome() {
       e.preventDefault();
       if (blocked()) return;
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? window.innerHeight : 1;
-      galaxy.targetTravel += gsap.utils.clamp(-8, 8, e.deltaY * unit * 0.02);
+      galaxy.targetTravel += gsap.utils.clamp(-20, 20, e.deltaY * unit * 0.05);
       galaxy.targetPanX -= gsap.utils.clamp(-4, 4, e.deltaX * unit * 0.01);
     };
     const down = (e: PointerEvent) => {
@@ -169,7 +169,7 @@ export default function GalaxyHome() {
       const u = galaxy.unitsPerPixel;
       if (pointerType === "touch") {
         // On touch, swiping up flies forward and sideways swipes pan.
-        galaxy.targetTravel -= dy * u * 2.2;
+        galaxy.targetTravel -= dy * u * 4.5;
         galaxy.targetPanX += dx * u;
         galaxy.panVX = dx * u;
       } else {
@@ -193,8 +193,8 @@ export default function GalaxyHome() {
       }
       if (blocked() || (e.target as Element).closest("input, textarea")) return;
       const k = e.key.toLowerCase();
-      if (k === "arrowup" || k === "w") galaxy.targetTravel += 5;
-      if (k === "arrowdown" || k === "s") galaxy.targetTravel -= 5;
+      if (k === "arrowup" || k === "w") galaxy.targetTravel += 10;
+      if (k === "arrowdown" || k === "s") galaxy.targetTravel -= 10;
       if (k === "arrowleft" || k === "a") galaxy.targetPanX += 2.5;
       if (k === "arrowright" || k === "d") galaxy.targetPanX -= 2.5;
     };
