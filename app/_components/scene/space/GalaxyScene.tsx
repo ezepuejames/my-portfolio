@@ -19,7 +19,9 @@ import {
   MASS_SLOTS,
 } from "./spaceShaders";
 import { galaxy } from "./galaxyState";
-import { NEAR, STAR_GM, SYSTEMS, SystemLook, VOLUME } from "./systems";
+import BlackHole from "./BlackHole";
+import { AsteroidField, SpaceLabel, TextAsteroids, makeRockGeometry } from "./Asteroids";
+import { BLACK_HOLE, NEAR, STAR_GM, SYSTEMS, SystemLook, VOLUME, WAVES } from "./systems";
 import { work } from "../../../content";
 
 const LO_Z = NEAR - VOLUME.z; // the far end of the volume
@@ -91,6 +93,11 @@ function ProjectSystem({
   const moonRefs = useRef<(THREE.Group | null)[]>([]);
   const ringMat = useRef<THREE.MeshBasicMaterial>(null);
   const orbitMat = useRef<THREE.LineBasicMaterial>(null);
+  const moonOrbitMat = useRef<THREE.LineBasicMaterial>(null);
+  const labelMoon = useRef<THREE.Group>(null);
+  const label = useRef<HTMLDivElement>(null);
+  const project = work[index];
+  const moonletGeometry = useMemo(() => makeRockGeometry(index * 1.7 + 0.3, 1), [index]);
   const down = useRef<{ x: number; y: number } | null>(null);
   const url = work[index]?.model ?? null;
 
@@ -118,6 +125,19 @@ function ProjectSystem({
       pts.push(new THREE.Vector3(Math.cos(t) * look.orbit, 0, Math.sin(t) * look.orbit));
     }
     return new THREE.BufferGeometry().setFromPoints(pts);
+  }, [look]);
+
+  // Circles for the moons' paths around the planet.
+  const moonPaths = useMemo(() => {
+    const radii = [...Array.from({ length: look.moons }, (_, k) => look.size * (1.9 + k * 0.75)), look.size * 3.1];
+    return radii.map((r) => {
+      const pts: THREE.Vector3[] = [];
+      for (let i = 0; i <= 96; i++) {
+        const t = (i / 96) * Math.PI * 2;
+        pts.push(new THREE.Vector3(Math.cos(t) * r, 0, Math.sin(t) * r));
+      }
+      return new THREE.BufferGeometry().setFromPoints(pts);
+    });
   }, [look]);
 
   // Kepler's third law: angular speed falls off with orbit radius^1.5.
@@ -170,7 +190,19 @@ function ProjectSystem({
     setValue(starU.uTime, starU.uTime.value + delta);
     setValue(glowU.uTime, glowU.uTime.value + delta);
     if (ringMat.current) ringMat.current.opacity = 0.32 * fade;
-    if (orbitMat.current) orbitMat.current.opacity = 0.16 * fade;
+    if (orbitMat.current) orbitMat.current.opacity = 0.42 * fade;
+    if (moonOrbitMat.current) moonOrbitMat.current.opacity = 0.22 * fade;
+
+    // The moonlet that carries this project's name.
+    if (labelMoon.current) {
+      const r = look.size * 3.1;
+      const a = index * 1.3 + t * Math.sqrt(0.25 / Math.pow(r, 3)) * 1.1;
+      labelMoon.current.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    }
+    if (label.current) {
+      const hide = galaxy.focused >= 0 && galaxy.focused !== index;
+      label.current.style.opacity = String(fade * (hide ? 0.15 : 1));
+    }
 
     pivot.current.getWorldPosition(planetWorld[index]);
     starWorld[index].copy(scratch);
@@ -223,7 +255,7 @@ function ProjectSystem({
       {/* Orbital plane, inclined like real orbits */}
       <group rotation={[look.incline, 0, look.incline * 0.4]}>
         <lineLoop geometry={orbitLine}>
-          <lineBasicMaterial ref={orbitMat} color={look.b} transparent opacity={0.16} depthWrite={false} />
+          <lineBasicMaterial ref={orbitMat} color={look.b} transparent opacity={0.42} depthWrite={false} />
         </lineLoop>
 
         <group ref={pivot}>
@@ -253,6 +285,36 @@ function ProjectSystem({
                 <meshBasicMaterial ref={ringMat} color={look.b} transparent opacity={0.32} side={THREE.DoubleSide} depthWrite={false} />
               </mesh>
             )}
+            {/* Paths of the moons, so you can see where they travel */}
+            {moonPaths.map((g, k) => (
+              <lineLoop key={`path-${k}`} geometry={g}>
+                <lineBasicMaterial
+                  ref={k === 0 ? moonOrbitMat : undefined}
+                  color={look.b}
+                  transparent
+                  opacity={0.22}
+                  depthWrite={false}
+                />
+              </lineLoop>
+            ))}
+
+            {/* A small moon that carries the project's name */}
+            <group ref={labelMoon}>
+              <mesh geometry={moonletGeometry} scale={look.size * 0.14}>
+                <meshStandardMaterial color="#cfc7bb" roughness={1} flatShading />
+              </mesh>
+              <SpaceLabel labelRef={label} offset={[0, look.size * 0.32, 0]} scale={0.2 + look.size * 0.12}>
+                <div className="-translate-y-1/2 text-center">
+                  <span className="block text-[26px] font-semibold tracking-[-0.02em] [text-shadow:0_2px_14px_rgba(5,8,15,0.95)]">
+                    {project?.title}
+                  </span>
+                  <span className="mt-1 block text-[13px] text-surface/65 [text-shadow:0_1px_10px_rgba(5,8,15,0.95)]">
+                    {project ? `${project.org}, ${project.year}` : ""}
+                  </span>
+                </div>
+              </SpaceLabel>
+            </group>
+
             {/* Moons orbit in the planet's equatorial plane */}
             {moonOrbits.map((r, k) => (
               <group
@@ -320,10 +382,12 @@ function Dust({ count }: { count: number }) {
 function SpacetimeGrid({
   starWorld,
   planetWorld,
+  holeWorld,
   narrow,
 }: {
   starWorld: THREE.Vector3[];
   planetWorld: THREE.Vector3[];
+  holeWorld: THREE.Vector3;
   narrow: boolean;
 }) {
   const geometry = useMemo(() => {
@@ -371,6 +435,10 @@ function SpacetimeGrid({
       },
       uTime: { value: 0 },
       uSpeed: { value: 0 },
+      uHole: { value: new THREE.Vector3(0, 0, 9999) },
+      uHoleMass: { value: BLACK_HOLE.gm },
+      uWaveAge: { value: [-1, -1, -1] },
+      uWave: { value: new THREE.Vector4(WAVES.speed, WAVES.width, WAVES.amplitude, 0) },
       uColor: { value: new THREE.Color("#4d66b3") },
       uBendColor: { value: new THREE.Color("#c9d8ff") },
     }),
@@ -382,6 +450,14 @@ function SpacetimeGrid({
     uniforms.uOffset.value.set(galaxy.panX, galaxy.panY, galaxy.travel);
     starWorld.forEach((p, i) => i < half && uniforms.uMassPos.value[i].copy(p));
     planetWorld.forEach((p, i) => i < half && uniforms.uMassPos.value[half + i].copy(p));
+    uniforms.uHole.value.copy(holeWorld);
+    // A new burst every few seconds; keep the last three alive as they spread.
+    const t = uniforms.uTime.value;
+    const ages = uniforms.uWaveAge.value;
+    for (let k = 0; k < 3; k++) {
+      const start = (Math.floor(t / WAVES.every) - k) * WAVES.every;
+      ages.splice(k, 1, start >= 0 ? t - start : -1);
+    }
     const speed = Math.hypot(galaxy.velX, galaxy.velY, galaxy.velZ);
     const target = THREE.MathUtils.smoothstep(speed, 2, 24) * galaxy.intro;
     setValue(uniforms.uSpeed, uniforms.uSpeed.value + (target - uniforms.uSpeed.value) * (1 - Math.exp(-5 * delta)));
@@ -529,6 +605,7 @@ export default function GalaxyScene({
   const bases = useMemo(() => basePositions(work.length), []);
   const planetWorld = useMemo(() => bases.map(() => new THREE.Vector3(0, 0, -999)), [bases]);
   const starWorld = useMemo(() => bases.map(() => new THREE.Vector3(0, 0, -999)), [bases]);
+  const holeWorld = useMemo(() => new THREE.Vector3(0, 0, 9999), []);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -543,19 +620,27 @@ export default function GalaxyScene({
       dpr={[1, 2]}
       camera={{ position: [0, 0, 0], fov: 50, near: 0.1, far: 300 }}
       gl={{ antialias: true }}
+      // Output colours as-is, so the black hole's lensed copy of the scene
+      // matches what is drawn directly (custom shaders already work this way).
+      linear
+      flat
       eventSource={eventSource as RefObject<HTMLElement>}
       eventPrefix="client"
       fallback={null}
     >
-      <color attach="background" args={["#05080f"]} />
+      <color attach="background" args={[0.02, 0.031, 0.059]} />
       <ambientLight intensity={0.4} />
       <directionalLight position={[-20, 12, 10]} intensity={1.8} />
       <Navigator planetWorld={planetWorld} starWorld={starWorld} narrow={narrow} />
       <Dust count={narrow ? 1800 : 3500} />
-      <SpacetimeGrid starWorld={starWorld} planetWorld={planetWorld} narrow={narrow} />
+      <SpacetimeGrid starWorld={starWorld} planetWorld={planetWorld} holeWorld={holeWorld} narrow={narrow} />
       {bases.map((b, i) => (
         <ProjectSystem key={i} index={i} look={SYSTEMS[i % SYSTEMS.length]} base={b} planetWorld={planetWorld} starWorld={starWorld} />
       ))}
+      <AsteroidField count={narrow ? 160 : 320} />
+      <TextAsteroids narrow={narrow} />
+      {/* Last, so it can render everything else first and bend it. */}
+      <BlackHole worldOut={holeWorld} />
     </Canvas>
   );
 }

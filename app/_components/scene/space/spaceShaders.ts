@@ -212,9 +212,14 @@ export const gridVertex = /* glsl */ `
   uniform float uMass[MASSES];
   uniform float uTime;
   uniform float uSpeed;   // 0 at rest, 1 when moving fast
+  uniform vec3 uHole;     // black hole position
+  uniform float uHoleMass;
+  uniform float uWaveAge[3]; // seconds since each of the last three bursts (<0 = none)
+  uniform vec4 uWave;     // speed, width, amplitude, unused
   attribute vec3 aMid;    // midpoint of this line segment
   varying float vAlpha;
   varying float vBend;
+  varying float vWave;
 
   void main() {
     // Wrap the whole segment by its midpoint so lines never stretch across the volume.
@@ -232,7 +237,35 @@ export const gridVertex = /* glsl */ `
       float pull = uMass[i] / (1.0 + r * r * 0.35);
       bend += (d / r) * min(pull, r * 0.6);
     }
+    // The black hole bends the lattice hardest of all.
+    {
+      vec3 d = uHole - p;
+      float r = length(d) + 1e-4;
+      float pull = uHoleMass / (1.0 + r * r * 0.12);
+      bend += (d / r) * min(pull, r * 0.75);
+    }
     p += bend;
+
+    // Gravitational waves: rings expanding from the black hole at a fixed
+    // speed. Like real waves they are transverse and quadrupolar: space is
+    // stretched along one direction across the wavefront and squeezed along
+    // the other, alternating as the wave passes.
+    vWave = 0.0;
+    vec3 fromHole = p - uHole;
+    float rh = length(fromHole) + 1e-4;
+    vec3 n = fromHole / rh;
+    vec3 e1 = normalize(cross(n, abs(n.y) > 0.9 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0)));
+    vec3 e2 = cross(n, e1);
+    for (int k = 0; k < 3; k++) {
+      float age = uWaveAge[k];
+      if (age < 0.0) continue;
+      float front = age * uWave.x;
+      float shell = (rh - front) / uWave.y;
+      float envelope = exp(-shell * shell) * uWave.z / (1.0 + rh * 0.04) * smoothstep(0.0, 0.6, age);
+      float phase = sin(shell * 3.1416 * 1.5);
+      p += (e1 * dot(fromHole, e1) - e2 * dot(fromHole, e2)) / rh * envelope * phase * 2.2;
+      vWave += envelope;
+    }
 
     // A ripple runs along the direction of travel while moving.
     p += vec3(0.0, sin(p.z * 0.5 + uTime * 6.0), 0.0) * 0.18 * uSpeed;
@@ -243,7 +276,7 @@ export const gridVertex = /* glsl */ `
     vBend = clamp(length(bend) * 0.9, 0.0, 1.0);
     vAlpha = smoothstep(far, far * 0.4, depth)
            * smoothstep(1.0, 6.0, depth)
-           * (0.05 + 0.12 * uSpeed + vBend * 0.45);
+           * (0.07 + 0.12 * uSpeed + vBend * 0.45 + vWave * 0.9);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -253,7 +286,10 @@ export const gridFragment = /* glsl */ `
   uniform vec3 uBendColor;
   varying float vAlpha;
   varying float vBend;
+  varying float vWave;
   void main() {
-    gl_FragColor = vec4(mix(uColor, uBendColor, vBend), vAlpha);
+    vec3 c = mix(uColor, uBendColor, vBend);
+    c = mix(c, vec3(0.75, 0.9, 1.0), clamp(vWave * 1.5, 0.0, 1.0));
+    gl_FragColor = vec4(c, vAlpha);
   }
 `;

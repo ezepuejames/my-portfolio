@@ -38,3 +38,20 @@ export const STAR_GM = 2.2;
 /** The repeating volume the systems live in, and how it wraps around the camera. */
 export const VOLUME = { x: 36, y: 22, z: 84 };
 export const NEAR = 8; // systems pass this far behind the camera before wrapping to the back
+
+/**
+ * The black hole. `rs` is its Schwarzschild radius in scene units; the shader
+ * works in multiples of it. Light is bent inside `lensRadius` (in rs), and the
+ * accretion disk runs from the innermost stable orbit (3 rs) to `diskOuter`.
+ */
+export const BLACK_HOLE = {
+  // Starts out of sight ahead and to the right; scrolling brings it into view.
+  position: [9, 2, -16] as [number, number, number],
+  rs: 0.7,
+  lensRadius: 14,
+  diskOuter: 13,
+  gm: 4, // how hard it bends the spacetime lattice
+};
+
+/** Gravitational-wave bursts from the black hole ripple through the lattice. */
+export const WAVES = { every: 6.5, speed: 16, width: 2.6, amplitude: 0.55 };

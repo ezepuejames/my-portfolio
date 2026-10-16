@@ -76,9 +76,6 @@ function Sheet({
 
 export default function GalaxyHome() {
   const root = useRef<HTMLDivElement>(null);
-  const caption = useRef<HTMLDivElement>(null);
-  const captionTitle = useRef<HTMLParagraphElement>(null);
-  const captionMeta = useRef<HTMLParagraphElement>(null);
   const hoverLabel = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLElement>(null);
   const [focused, setFocused] = useState(-1);
@@ -107,15 +104,6 @@ export default function GalaxyHome() {
 
   // Wire the scene's callbacks to the DOM.
   useEffect(() => {
-    galaxy.onNearest = (i) => {
-      const w = work[i];
-      if (!captionTitle.current || !captionMeta.current) return;
-      captionTitle.current.textContent = w ? w.title : "";
-      captionMeta.current.textContent = w ? `${w.org}, ${w.year}` : "";
-      if (w && !reduced) {
-        gsap.fromTo(captionTitle.current, { yPercent: 50, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.5, ease: "power3.out" });
-      }
-    };
     galaxy.onHover = (i) => {
       const el = hoverLabel.current;
       if (!el) return;
@@ -128,7 +116,7 @@ export default function GalaxyHome() {
     };
     galaxy.onSelect = (i) => flyTo(i);
     return () => {
-      galaxy.onNearest = galaxy.onHover = galaxy.onSelect = null;
+      galaxy.onHover = galaxy.onSelect = null;
     };
   }, [flyTo, reduced]);
 
@@ -226,9 +214,7 @@ export default function GalaxyHome() {
       }
       const tl = gsap.timeline();
       tl.to(galaxy, { intro: 1, duration: 2.4, ease: "power2.out" }, 0)
-        .to(galaxy, { targetTravel: "+=30", duration: 3.2, ease: "power3.out" }, 0)
-        .from("[data-line]", { yPercent: 110, duration: 1.2, stagger: 0.08, ease: "expo.out" }, 0.5)
-        .from("[data-fade]", { opacity: 0, y: 10, duration: 0.8, stagger: 0.06, ease: "power2.out" }, 1.1);
+        .to(galaxy, { targetTravel: "+=30", duration: 3.2, ease: "power3.out" }, 0);
     },
     { scope: root, dependencies: [reduced] }
   );
@@ -244,7 +230,6 @@ export default function GalaxyHome() {
         ease: open ? "expo.out" : "power3.in",
         delay: open && !reduced ? 0.35 : 0,
       });
-      gsap.to("[data-hud]", { autoAlpha: open ? 0 : 1, duration: 0.4 });
       if (open) panel.current?.focus({ preventScroll: true });
     },
     { scope: root, dependencies: [focused, reduced] }
@@ -302,40 +287,11 @@ export default function GalaxyHome() {
         </div>
       </header>
 
-      {/* Intro and caption, hidden while a project is open */}
-      <div data-hud className="pointer-events-none absolute inset-0 z-10">
-        {/* Darkens the bottom of the screen so the text stays readable over passing planets. */}
-        <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-[#05080f]/90 via-[#05080f]/45 to-transparent" />
-        <div className="relative mx-auto flex h-full max-w-7xl flex-col justify-end gap-8 px-4 pb-6 sm:px-8 md:pb-10">
-          <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
-            <div className="max-w-lg">
-              <h1 className="text-[clamp(1.9rem,3.6vw,3.2rem)] font-semibold leading-[1.02] tracking-[-0.035em]">
-                {profile.headline.map((line) => (
-                  <span key={line} className="block overflow-hidden pb-[0.06em]">
-                    <span data-line className="block">
-                      {line}
-                    </span>
-                  </span>
-                ))}
-              </h1>
-              <p data-fade className="mt-4 flex items-center gap-2.5 text-[0.95rem] text-surface/80">
-                <span className="relative inline-flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#3ccf96] opacity-50 motion-reduce:hidden" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#3ccf96]" />
-                </span>
-                {profile.availability}
-              </p>
-            </div>
-
-            <div ref={caption} data-fade className="md:text-right" aria-live="polite">
-              <p ref={captionTitle} className="text-2xl font-semibold tracking-[-0.02em] md:text-3xl" />
-              <p ref={captionMeta} className="mt-1 text-sm text-surface/60" />
-            </div>
-          </div>
-          <p data-fade className="text-sm text-surface/55">
-            Scroll to fly through. Drag to look around. Each planet is a project; click one to see what I built.
-          </p>
-        </div>
+      {/* The intro lives on asteroids in the scene; this copy is for screen readers and search. */}
+      <div className="sr-only">
+        <h1>{profile.headline.join(" ")}</h1>
+        <p>{profile.intro}</p>
+        <p>{profile.availability}</p>
       </div>
 
       {/* Project details after flying to a planet */}
