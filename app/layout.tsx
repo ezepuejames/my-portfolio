@@ -1,21 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+// Self-hosted variable font, so builds don't depend on reaching Google Fonts.
+import "@fontsource-variable/schibsted-grotesk";
 import "./globals.css";
-import Navbar from "./components/Navbar";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata: Metadata = {
-  title: "Ezepue James",
-  description: "My Portfolio",
+  title: "Ezepue James, fullstack software engineer",
+  description:
+    "Fullstack engineer in Lagos building web and mobile products in TypeScript, React, Next.js, React Native, Node.js and PostgreSQL. Open to remote roles.",
 };
 
 export default function RootLayout({
@@ -24,13 +15,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        <Navbar/>
-        {children}
-      </body>
+    <html lang="en">
+      <body className="antialiased">{children}</body>
     </html>
   );
 }
