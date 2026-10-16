@@ -74,3 +74,42 @@ export const placeholderFragment = /* glsl */ `
     gl_FragColor = vec4(color, 0.08 + fresnel * 0.8);
   }
 `;
+
+// Grain cursor: a small disc of the same dots as the hero field. It trails
+// against the direction of travel, scatters with speed, and spreads on hover.
+export const cursorVertex = /* glsl */ `
+  uniform float uTime;
+  uniform vec2 uVel;
+  uniform float uHover;
+  uniform float uDown;
+  uniform float uSize;
+  uniform float uPixelRatio;
+  attribute float aSeed;
+  varying float vAlpha;
+
+  void main() {
+    vec3 p = position;
+    float speed = length(uVel);
+
+    p.xy *= 1.0 + uHover * 0.9 - uDown * 0.35;
+    p.xy -= uVel * aSeed * 1.4;
+    p.xy += (vec2(aSeed, fract(aSeed * 7.13)) - 0.5) * speed * 1.2;
+    p.xy += vec2(sin(uTime * 2.0 + aSeed * 6.28), cos(uTime * 1.7 + aSeed * 6.28)) * 0.8;
+
+    float pulse = 0.85 + 0.3 * sin(uTime * 3.0 + aSeed * 12.0);
+    vAlpha = mix(1.0, 0.55, aSeed * min(speed / 20.0, 1.0));
+
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    gl_PointSize = uSize * uPixelRatio * pulse * (1.0 + uHover * 0.35);
+  }
+`;
+
+export const cursorFragment = /* glsl */ `
+  varying float vAlpha;
+
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    if (d > 0.5) discard;
+    gl_FragColor = vec4(vec3(1.0), smoothstep(0.5, 0.2, d) * vAlpha);
+  }
+`;
