@@ -651,6 +651,7 @@ export default function GalaxyScene({
       <TextAsteroids narrow={narrow} />
       {/* Last, so it can render everything else first and bend it. */}
       <BlackHole worldOut={holeWorld} />
+      {/* The wormhole cursor takes over the final render on mouse and trackpad devices. */}
       {finePointer && !reducedMotion && <WormholeCursor />}
     </Canvas>
   );
